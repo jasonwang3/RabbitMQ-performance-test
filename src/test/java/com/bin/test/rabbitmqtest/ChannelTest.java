@@ -20,6 +20,7 @@ import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Created by jason on 16-8-26.
@@ -38,6 +39,15 @@ public class ChannelTest {
         }
     }
 
+    @Test public void test() {
+//        AtomicLong atomicLong = new AtomicLong(0);
+//        AtomicLong atomicLong2 = new AtomicLong(1);
+//        long count = atomicLong.addAndGet(10);
+//        long count2 = atomicLong.addAndGet(10);
+//        atomicLong2.incrementAndGet();
+//        long count3 = atomicLong2.incrementAndGet();
+        System.out.println(new Attempt().toString());
+    }
 
     @Test public void generateQueues() {
         CachingConnectionFactory cachingConnectionFactory = new CachingConnectionFactory();
@@ -69,7 +79,7 @@ public class ChannelTest {
         CachingConnectionFactory cachingConnectionFactory = new CachingConnectionFactory();
         cachingConnectionFactory.setHost("127.0.0.1");
         cachingConnectionFactory.setPort(5672);
-        cachingConnectionFactory.setChannelCacheSize(5);
+        cachingConnectionFactory.setChannelCacheSize(25);
         cachingConnectionFactory.setCacheMode(CachingConnectionFactory.CacheMode.CHANNEL);
 
         ExecutorService executorService = Executors.newFixedThreadPool(queueCount);
@@ -113,7 +123,7 @@ public class ChannelTest {
             Channel channel = cachingConnectionFactory.createConnection().createChannel(false);
             //            logger.info("get channel number is {}", channel.getChannelNumber());
             try {
-                channel.basicQos(1000);
+                channel.basicQos(1);
                 AttemptConsumer attemptConsumer = new AttemptConsumer(channel);
                 int channelCount = duplicateArray[channel.getChannelNumber()].incrementAndGet();
                 if (channelCount > 1) {
@@ -158,6 +168,12 @@ public class ChannelTest {
         @Override public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) {
             received++;
             try {
+                if (received == 1) {
+                    logger.info("start to consume,delivery tag is {}, channel number is {}, channel is " + getChannel().getClass().toString(), envelope.getDeliveryTag(), getChannel().getChannelNumber());
+                }
+                if (shutdown) {
+                    logger.error("is shutdown but received message!");
+                }
                 if (received >= 5000 && !shutdown) {
                     closeChannel(consumerTag);
                 }
@@ -165,7 +181,7 @@ public class ChannelTest {
                     getChannel().basicAck(envelope.getDeliveryTag(), false);
                 }
             } catch (Exception e) {
-
+                logger.error(e.getMessage());
             }
         }
 

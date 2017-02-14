@@ -10,6 +10,10 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+
 /**
  * Created by jason on 16-3-31.
  */
@@ -24,18 +28,23 @@ public class PutAttemptEvent {
             String username = strArg(cmd, 'n', null);
             String password = strArg(cmd, 'p', null);
             String vhost = strArg(cmd, 'v', null);
+            int port = intArg(cmd, 'o', 5672);
             String exchange = strArg(cmd, 'e', null);
             String routingKey = strArg(cmd, 'r', null);
             int count = intArg(cmd, 'c', 10000);
+            LinkedBlockingQueue<Attempt> linkedBlockingQueue = new LinkedBlockingQueue();
+
+            ExecutorService fixedThreadPool = Executors.newFixedThreadPool(100);
+
             CachingConnectionFactory cachingConnectionFactory = new CachingConnectionFactory();
             cachingConnectionFactory.setHost(host);
             cachingConnectionFactory.setVirtualHost(vhost);
             cachingConnectionFactory.setUsername(username);
             cachingConnectionFactory.setPassword(password);
-            cachingConnectionFactory.setPort(5672);
+            cachingConnectionFactory.setPort(port);
             cachingConnectionFactory.setChannelCacheSize(25);
-            cachingConnectionFactory.setCacheMode(CachingConnectionFactory.CacheMode.CONNECTION);
-            cachingConnectionFactory.setConnectionCacheSize(3);
+//            cachingConnectionFactory.setCacheMode(CachingConnectionFactory.CacheMode.CONNECTION);
+//            cachingConnectionFactory.setConnectionCacheSize(3);
 
             RabbitTemplate rabbitTemplate = new RabbitTemplate();
             rabbitTemplate.setConnectionFactory(cachingConnectionFactory);
@@ -43,24 +52,46 @@ public class PutAttemptEvent {
 
             rabbitTemplate.setMessageConverter(convert);
 
-            Attempt attempt = new Attempt();
-            attempt.setAttempt(1);
-            attempt.setBroadcastId("56fbd14ae4b0533bca1fd624");
-            attempt.setContactId("444249942261817");
-            attempt.setFirstName("echo");
-            attempt.setLastName("xu");
-
-            AttemptPath attemptPath = new AttemptPath();
-            attemptPath.setPathType(AttemptPathType.DUMMY);
-            attemptPath.setPathValue("abcdkededdada");
-            attemptPath.setCallerId("12121212");
-            attemptPath.setCountryCode("US");
-            attemptPath.setConfirmationPhoneNumber("112112121");
-
-            attempt.setAttemptPath(attemptPath);
             for (int i = 0; i < count; i++) {
-                rabbitTemplate.convertAndSend(exchange, routingKey, attempt);
+                Attempt attempt = new Attempt();
+                attempt.setAttempt(i + 1);
+                attempt.setBroadcastId("56fbd14ae4b0533bca1fd624");
+                attempt.setContactId("444249942261817");
+                attempt.setFirstName("echo");
+                attempt.setLastName("xu");
+                AttemptPath attemptPath = new AttemptPath();
+                attemptPath.setPathType(AttemptPathType.EMAIL);
+                attemptPath.setPathValue("abcdkededdada");
+                attemptPath.setCallerId("12121212");
+                attemptPath.setCountryCode("US");
+                attemptPath.setConfirmationPhoneNumber("112112121");
+                attempt.setAttemptPath(attemptPath);
+                linkedBlockingQueue.put(attempt);
+
             }
+            long beginTime = System.currentTimeMillis();
+
+            for (int i = 0; i < 100; i++) {
+                final int index = i;
+                fixedThreadPool.execute(new Runnable() {
+                    public void run() {
+                        boolean flag = true;
+                        while (flag) {
+                            Attempt attempt = linkedBlockingQueue.poll();
+                            if (attempt != null) {
+                                rabbitTemplate.convertAndSend(exchange, routingKey, attempt);
+                            } else {
+                                flag = false;
+                            }
+                        }
+
+                    }
+                });
+            }
+            fixedThreadPool.shutdown();
+            while (!fixedThreadPool.isTerminated());
+            long endTime = System.currentTimeMillis();
+            System.out.println("total cost " + (endTime-beginTime));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -76,6 +107,7 @@ public class PutAttemptEvent {
         options.addOption(new Option("n", "username", true, "username"));
         options.addOption(new Option("p", "password", true, "password"));
         options.addOption(new Option("v", "vhost", true, "vhost"));
+        options.addOption(new Option("o", "port", true, "port"));
         options.addOption(new Option("e", "exchange", true, "exchange name"));
         options.addOption(new Option("r", "routingKey", true, "routingKey name"));
         options.addOption(new Option("c", "count", true, "total count"));
